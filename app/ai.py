@@ -61,7 +61,7 @@ def ask_groq(language: str, analysis: dict, question: str | None) -> str | None:
                     {"role": "user", "content": user},
                 ],
                 "temperature": 0.3,
-                "max_tokens": 600,
+                "max_tokens": 1500,
             },
             timeout=30,
         )
