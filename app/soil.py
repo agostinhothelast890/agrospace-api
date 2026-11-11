@@ -36,7 +36,8 @@ def fetch_soil(latitude: float, longitude: float) -> dict | None:
         response = httpx.get(SOILGRIDS_URL, params=params, timeout=25)
         response.raise_for_status()
         layers = response.json()["properties"]["layers"]
-    except (httpx.HTTPError, KeyError, ValueError):
+    except (httpx.HTTPError, KeyError, ValueError) as e:
+        print(f"SoilGrids error: {e!r}")
         return None
 
     values: dict[str, float | None] = {}
