@@ -2,7 +2,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.auth import router as auth_router
+from app.dashboard import router as dashboard_router
 from app.farms import router as farms_router
+from app.profile import router as profile_router
 
 app = FastAPI(title="AgroSpace API", version="0.1.0")
 
@@ -14,7 +16,9 @@ app.add_middleware(
 )
 
 app.include_router(auth_router)
+app.include_router(profile_router)
 app.include_router(farms_router)
+app.include_router(dashboard_router)
 
 
 @app.get("/")
