@@ -6,6 +6,7 @@ from app.dashboard import router as dashboard_router
 from app.farms import router as farms_router
 from app.profile import router as profile_router
 from app.weather import router as weather_router
+from app.analysis import router as analysis_router
 
 app = FastAPI(title="AgroSpace API", version="0.1.0")
 
@@ -21,6 +22,7 @@ app.include_router(profile_router)
 app.include_router(farms_router)
 app.include_router(dashboard_router)
 app.include_router(weather_router)
+app.include_router(analysis_router)
 
 
 @app.get("/")
