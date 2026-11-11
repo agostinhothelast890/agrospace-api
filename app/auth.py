@@ -19,6 +19,19 @@ class LoginIn(BaseModel):
     password: str
 
 
+class RefreshIn(BaseModel):
+    refresh_token: str
+
+
+def token_response(session) -> dict:
+    return {
+        "access_token": session.access_token,
+        "refresh_token": session.refresh_token,
+        "expires_in": session.expires_in,
+        "token_type": "bearer",
+    }
+
+
 def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(bearer),
 ):
@@ -57,10 +70,18 @@ def login(data: LoginIn):
         )
     except Exception:
         raise HTTPException(status_code=401, detail="Invalid email or password")
-    return {
-        "access_token": result.session.access_token,
-        "token_type": "bearer",
-    }
+    return token_response(result.session)
+
+
+@router.post("/refresh")
+def refresh(data: RefreshIn):
+    try:
+        result = get_client().auth.refresh_session(data.refresh_token)
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
+    if not result or not result.session:
+        raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
+    return token_response(result.session)
 
 
 @router.get("/me")
