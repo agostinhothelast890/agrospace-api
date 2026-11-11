@@ -4,12 +4,13 @@ from fastapi import APIRouter, Depends
 
 from app.auth import get_current_user
 from app.farms import get_db
+from app.soil import fetch_soil
 from app.weather import fetch_weather, get_farm_with_coords
 
 router = APIRouter(prefix="/api/farms", tags=["analysis"])
 
 DISCLAIMER = (
-    "Demonstration rules based on weather only. "
+    "Demonstration rules based on weather and soil estimates. "
     "Not agronomic advice; consult an agronomist."
 )
 
@@ -22,13 +23,23 @@ CROP_RANGES = {
 }
 DEFAULT_RANGE = {"temp": (15, 32), "rain_7d": (10, 60)}
 
+# Demo ideal soil pH per crop.
+PH_RANGES = {
+    "maize": (5.8, 7.0),
+    "cassava": (5.5, 7.0),
+    "beans": (6.0, 7.0),
+    "tomato": (6.0, 6.8),
+}
+DEFAULT_PH = (5.5, 7.5)
+
 
 def make_factor(name: str, value, status: str, message: str) -> dict:
     return {"name": name, "value": value, "status": status, "message": message}
 
 
-def evaluate(crop: str | None, weather: dict) -> dict:
-    ranges = CROP_RANGES.get((crop or "").lower())
+def evaluate(crop: str | None, weather: dict, soil: dict | None) -> dict:
+    crop_key = (crop or "").lower()
+    ranges = CROP_RANGES.get(crop_key)
     known_crop = ranges is not None
     ranges = ranges or DEFAULT_RANGE
     t_lo, t_hi = ranges["temp"]
@@ -80,6 +91,20 @@ def evaluate(crop: str | None, weather: dict) -> dict:
         factors.append(make_factor("forecast_rain_mm", rain_next, "good",
                                    "Forecast rain is not a concern."))
 
+    # 5. Soil pH (only if soil data is available)
+    ph = soil["ph"] if soil else None
+    if ph is not None:
+        p_lo, p_hi = PH_RANGES.get(crop_key, DEFAULT_PH)
+        if ph < p_lo:
+            factors.append(make_factor("soil_ph", ph, "warning",
+                                       f"Soil is acidic (ideal {p_lo}-{p_hi}): liming may help."))
+        elif ph > p_hi:
+            factors.append(make_factor("soil_ph", ph, "warning",
+                                       f"Soil is alkaline (ideal {p_lo}-{p_hi}): nutrients may be harder to absorb."))
+        else:
+            factors.append(make_factor("soil_ph", ph, "good",
+                                       "Soil pH is within the ideal range."))
+
     statuses = {f["status"] for f in factors}
     if "risk" in statuses:
         status = "risk"
@@ -92,7 +117,11 @@ def evaluate(crop: str | None, weather: dict) -> dict:
     if not recommendations:
         recommendations = ["Conditions look favorable. Keep monitoring."]
 
-    limitations = ["Uses weather data only (no soil data yet)."]
+    limitations = []
+    if soil:
+        limitations.append("Soil values are global estimates (~250 m), not a lab test.")
+    else:
+        limitations.append("Soil data unavailable right now: analysis used weather only.")
     if not known_crop:
         limitations.append("Crop not recognized: generic ranges were used.")
 
@@ -109,8 +138,10 @@ def evaluate(crop: str | None, weather: dict) -> dict:
 def farm_analysis(farm_id: UUID, user=Depends(get_current_user), db=Depends(get_db)):
     farm = get_farm_with_coords(db, farm_id)
     weather = fetch_weather(farm["latitude"], farm["longitude"])
+    soil = fetch_soil(farm["latitude"], farm["longitude"])
     return {
         "farm": {"id": farm["id"], "name": farm["name"], "crop": farm["crop"]},
         "disclaimer": DISCLAIMER,
-        **evaluate(farm["crop"], weather),
+        "soil": soil,
+        **evaluate(farm["crop"], weather, soil),
     }
