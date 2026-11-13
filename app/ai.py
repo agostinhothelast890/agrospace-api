@@ -134,7 +134,8 @@ def explain(
     farm = get_farm_with_coords(db, farm_id)
     weather = fetch_weather(farm["latitude"], farm["longitude"])
     soil = fetch_soil(farm["latitude"], farm["longitude"])
-    analysis = {"crop": farm["crop"], **evaluate(farm["crop"], weather, soil)}
+    nasa = fetch_nasa(farm["latitude"], farm["longitude"])
+    analysis = {"crop": farm["crop"], **evaluate(farm["crop"], weather, soil, nasa)}
 
     text = ask_groq(language_rule(data.lang, data.question), analysis, data.question)
 
