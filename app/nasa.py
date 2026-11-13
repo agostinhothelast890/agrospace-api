@@ -15,6 +15,7 @@ FILL_VALUE = -999  # POWER uses -999 for days without data yet
 
 # One call per location per day is enough (the data is daily).
 _cache: dict[tuple[float, float, str], dict] = {}
+_last_error = {"message": ""}
 
 
 def fetch_nasa(latitude: float, longitude: float) -> dict | None:
@@ -30,7 +31,7 @@ def fetch_nasa(latitude: float, longitude: float) -> dict | None:
         "latitude": latitude,
         "longitude": longitude,
         "start": (today - timedelta(days=14)).strftime("%Y%m%d"),
-        "end": today.strftime("%Y%m%d"),
+        "end": (today - timedelta(days=1)).strftime("%Y%m%d"),
         "format": "JSON",
     }
     try:
@@ -38,6 +39,7 @@ def fetch_nasa(latitude: float, longitude: float) -> dict | None:
         response.raise_for_status()
         series = response.json()["properties"]["parameter"]
     except (httpx.HTTPError, KeyError, ValueError) as e:
+        _last_error["message"] = repr(e)[:200]
         print(f"NASA POWER error: {e!r}")
         return None
 
@@ -48,7 +50,8 @@ def fetch_nasa(latitude: float, longitude: float) -> dict | None:
     temp, rain = valid("T2M"), valid("PRECTOTCORR")
     hum, wet = valid("RH2M"), valid("GWETROOT")
     if not (temp or rain or wet):
-        print(f"NASA POWER returned no valid values: {list(series.keys())}")
+        _last_error["message"] = f"no valid values, keys: {list(series.keys())}"
+        print(f"NASA POWER: {_last_error['message']}")
         return None
 
     def latest(values: dict[str, float]):
@@ -91,5 +94,8 @@ def farm_nasa(farm_id: UUID, user=Depends(get_current_user), db=Depends(get_db))
     farm = get_farm_with_coords(db, farm_id)
     nasa = fetch_nasa(farm["latitude"], farm["longitude"])
     if nasa is None:
-        raise HTTPException(status_code=503, detail="NASA POWER unavailable")
+        raise HTTPException(
+            status_code=503,
+            detail=f"NASA POWER unavailable: {_last_error['message']}",
+        )
     return {"farm": {"id": farm["id"], "name": farm["name"]}, **nasa}
