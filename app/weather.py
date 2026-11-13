@@ -36,12 +36,21 @@ def fetch_weather(latitude: float, longitude: float) -> dict:
         "forecast_days": 3,
         "timezone": "auto",
     }
-    try:
-        response = httpx.get(OPEN_METEO_URL, params=params, timeout=15)
-        response.raise_for_status()
-        data = response.json()
-    except httpx.HTTPError:
-        raise HTTPException(status_code=502, detail="Weather service unavailable")
+    last_error = None
+    for _ in range(2):  # one retry for short network hiccups
+        try:
+            response = httpx.get(OPEN_METEO_URL, params=params, timeout=20)
+            response.raise_for_status()
+            data = response.json()
+            break
+        except httpx.HTTPError as e:
+            last_error = e
+    else:
+        print(f"Open-Meteo error: {last_error!r}")
+        raise HTTPException(
+            status_code=502,
+            detail=f"Weather service unavailable: {repr(last_error)[:200]}",
+        )
 
     daily = data["daily"]
     current = data["current"]
