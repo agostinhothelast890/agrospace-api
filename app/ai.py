@@ -25,7 +25,6 @@ LANGUAGES = {
     "kg": "Kikongo (experimental)",
 }
 
-# Edit this text to match the real pages of the website.
 APP_INFO = """
 AgroSpace is a web platform made for the NASA Space Apps Challenge 2026.
 It helps farmers understand the conditions of their farm using weather and soil data.
@@ -34,7 +33,7 @@ coordinates, area in hectares); see a dashboard with their farms, total area and
 see the weather of a farm (current conditions, rain in the last 7 days, 3-day forecast);
 get an analysis with a status (favorable, attention or risk), factors and recommendations;
 and ask this assistant questions.
-Weather data comes from Open-Meteo. Soil data (pH, organic carbon, clay, sand) comes from
+Weather data comes from Open-Meteo and NASA POWER (NASA data, including root-zone soil wetness). Soil data (pH, organic carbon, clay, sand) comes from
 SoilGrids and may be temporarily unavailable.
 The analysis rules are demonstration rules, not professional agronomic advice.
 Crops with specific rules: maize, cassava, beans, tomato. Other crops use generic ranges.
