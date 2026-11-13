@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from app.nasa import fetch_nasa
 
-from app.analysis import DISCLAIMER, evaluate
+from app.analysis import DISCLAIMER, evaluate, load_inputs
 from app.auth import get_current_user
 from app.config import GROQ_API_KEY, GROQ_MODEL
 from app.farms import get_db
@@ -131,10 +131,11 @@ def explain(
     check_lang(data.lang)
 
     farm = get_farm_with_coords(db, farm_id)
-    weather = fetch_weather(farm["latitude"], farm["longitude"])
-    soil = fetch_soil(farm["latitude"], farm["longitude"])
-    nasa = fetch_nasa(farm["latitude"], farm["longitude"])
-    analysis = {"crop": farm["crop"], **evaluate(farm["crop"], weather, soil, nasa)}
+    data = load_inputs(farm)
+    analysis = {
+        "crop": farm["crop"],
+        **evaluate(farm["crop"], data["weather"], data["soil"], data["nasa"]),
+    }
 
     text = ask_groq(language_rule(data.lang, data.question), analysis, data.question)
 
