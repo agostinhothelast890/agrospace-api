@@ -4,13 +4,14 @@ from fastapi import APIRouter, Depends
 
 from app.auth import get_current_user
 from app.farms import get_db
+from app.nasa import fetch_nasa, nasa_wetness_factor
 from app.soil import fetch_soil
 from app.weather import fetch_weather, get_farm_with_coords
 
 router = APIRouter(prefix="/api/farms", tags=["analysis"])
 
 DISCLAIMER = (
-    "Demonstration rules based on weather and soil estimates. "
+    "Demonstration rules based on weather, soil and NASA data. "
     "Not agronomic advice; consult an agronomist."
 )
 
@@ -37,7 +38,12 @@ def make_factor(name: str, value, status: str, message: str) -> dict:
     return {"name": name, "value": value, "status": status, "message": message}
 
 
-def evaluate(crop: str | None, weather: dict, soil: dict | None) -> dict:
+def evaluate(
+    crop: str | None,
+    weather: dict,
+    soil: dict | None,
+    nasa: dict | None = None,
+) -> dict:
     crop_key = (crop or "").lower()
     ranges = CROP_RANGES.get(crop_key)
     known_crop = ranges is not None
@@ -105,6 +111,11 @@ def evaluate(crop: str | None, weather: dict, soil: dict | None) -> dict:
             factors.append(make_factor("soil_ph", ph, "good",
                                        "Soil pH is within the ideal range."))
 
+    # 6. NASA root-zone soil wetness (only if NASA data is available)
+    wetness = nasa_wetness_factor(nasa)
+    if wetness:
+        factors.append(wetness)
+
     statuses = {f["status"] for f in factors}
     if "risk" in statuses:
         status = "risk"
@@ -121,7 +132,11 @@ def evaluate(crop: str | None, weather: dict, soil: dict | None) -> dict:
     if soil:
         limitations.append("Soil values are global estimates (~250 m), not a lab test.")
     else:
-        limitations.append("Soil data unavailable right now: analysis used weather only.")
+        limitations.append("Soil data unavailable right now.")
+    if nasa:
+        limitations.append("NASA POWER data has ~50 km resolution and a delay of a few days.")
+    else:
+        limitations.append("NASA data unavailable right now.")
     if not known_crop:
         limitations.append("Crop not recognized: generic ranges were used.")
 
@@ -139,9 +154,19 @@ def farm_analysis(farm_id: UUID, user=Depends(get_current_user), db=Depends(get_
     farm = get_farm_with_coords(db, farm_id)
     weather = fetch_weather(farm["latitude"], farm["longitude"])
     soil = fetch_soil(farm["latitude"], farm["longitude"])
+    nasa = fetch_nasa(farm["latitude"], farm["longitude"])
+
+    data_sources = ["Open-Meteo"]
+    if soil:
+        data_sources.append("SoilGrids (ISRIC)")
+    if nasa:
+        data_sources.append("NASA POWER")
+
     return {
         "farm": {"id": farm["id"], "name": farm["name"], "crop": farm["crop"]},
         "disclaimer": DISCLAIMER,
+        "data_sources": data_sources,
         "soil": soil,
-        **evaluate(farm["crop"], weather, soil),
+        "nasa": nasa,
+        **evaluate(farm["crop"], weather, soil, nasa),
     }
