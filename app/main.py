@@ -10,8 +10,10 @@ from app.analysis import router as analysis_router
 from app.soil import router as soil_router
 from app.ai import router as ai_router
 from app.nasa import router as nasa_router
+from app.errors import register_error_handlers
 
 app = FastAPI(title="AgroSpace API", version="0.1.0")
+register_error_handlers(app)
 
 app.add_middleware(
     CORSMiddleware,
