@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 
 from app.auth import get_current_user
 from app.farms import get_db
@@ -38,6 +38,43 @@ def make_factor(name: str, value, status: str, message: str) -> dict:
     return {"name": name, "value": value, "status": status, "message": message}
 
 
+def weather_from_nasa(nasa: dict | None) -> dict | None:
+    """Basic weather built from NASA POWER (backup if Open-Meteo is down)."""
+    if not nasa:
+        return None
+    temp = nasa.get("temperature_c")
+    rain = nasa.get("rainfall_mm_7d")
+    if temp is None or rain is None:
+        return None
+    return {
+        "source": "NASA POWER",
+        "current": {
+            "temperature_c": temp,
+            "humidity_pct": nasa.get("humidity_pct"),
+            "rain_mm": None,
+        },
+        "rainfall_mm_7d": rain,
+        "forecast": [],  # NASA POWER has no forecast
+    }
+
+
+def load_inputs(farm: dict) -> dict:
+    """Collects all data sources; uses NASA as weather backup if Open-Meteo fails."""
+    lat, lon = farm["latitude"], farm["longitude"]
+    nasa = fetch_nasa(lat, lon)
+    soil = fetch_soil(lat, lon)
+    try:
+        weather = fetch_weather(lat, lon)
+    except HTTPException:
+        weather = weather_from_nasa(nasa)
+        if weather is None:
+            raise HTTPException(
+                status_code=502,
+                detail="Weather data unavailable (Open-Meteo and NASA POWER failed)",
+            )
+    return {"weather": weather, "soil": soil, "nasa": nasa}
+
+
 def evaluate(
     crop: str | None,
     weather: dict,
@@ -54,8 +91,6 @@ def evaluate(
     temp = weather["current"]["temperature_c"]
     rain_7d = weather["rainfall_mm_7d"]
     forecast = weather["forecast"]
-    max_temp = max(d["temp_max_c"] for d in forecast)
-    rain_next = round(sum(d["rain_mm"] or 0 for d in forecast), 1)
 
     factors = []
 
@@ -81,21 +116,24 @@ def evaluate(
         factors.append(make_factor("rainfall_mm_7d", rain_7d, "good",
                                    "Rain in the last 7 days is adequate."))
 
-    # 3. Heat in the next days
-    if max_temp > t_hi:
-        factors.append(make_factor("forecast_max_temp_c", max_temp, "warning",
-                                   "Heat expected in the next days: crop may be stressed."))
-    else:
-        factors.append(make_factor("forecast_max_temp_c", max_temp, "good",
-                                   "No heat stress expected in the next days."))
+    # 3 and 4. Forecast factors (skipped when there is no forecast)
+    if forecast:
+        max_temp = max(d["temp_max_c"] for d in forecast)
+        rain_next = round(sum(d["rain_mm"] or 0 for d in forecast), 1)
 
-    # 4. Rain in the next days
-    if rain_7d < r_lo and rain_next < 5:
-        factors.append(make_factor("forecast_rain_mm", rain_next, "warning",
-                                   "Dry week and little rain forecast: consider irrigation."))
-    else:
-        factors.append(make_factor("forecast_rain_mm", rain_next, "good",
-                                   "Forecast rain is not a concern."))
+        if max_temp > t_hi:
+            factors.append(make_factor("forecast_max_temp_c", max_temp, "warning",
+                                       "Heat expected in the next days: crop may be stressed."))
+        else:
+            factors.append(make_factor("forecast_max_temp_c", max_temp, "good",
+                                       "No heat stress expected in the next days."))
+
+        if rain_7d < r_lo and rain_next < 5:
+            factors.append(make_factor("forecast_rain_mm", rain_next, "warning",
+                                       "Dry week and little rain forecast: consider irrigation."))
+        else:
+            factors.append(make_factor("forecast_rain_mm", rain_next, "good",
+                                       "Forecast rain is not a concern."))
 
     # 5. Soil pH (only if soil data is available)
     ph = soil["ph"] if soil else None
@@ -129,6 +167,11 @@ def evaluate(
         recommendations = ["Conditions look favorable. Keep monitoring."]
 
     limitations = []
+    if weather.get("source") != "Open-Meteo":
+        limitations.append(
+            "Open-Meteo unavailable: weather comes from NASA POWER "
+            "(a few days old, no forecast)."
+        )
     if soil:
         limitations.append("Soil values are global estimates (~250 m), not a lab test.")
     else:
@@ -152,14 +195,13 @@ def evaluate(
 @router.get("/{farm_id}/analysis")
 def farm_analysis(farm_id: UUID, user=Depends(get_current_user), db=Depends(get_db)):
     farm = get_farm_with_coords(db, farm_id)
-    weather = fetch_weather(farm["latitude"], farm["longitude"])
-    soil = fetch_soil(farm["latitude"], farm["longitude"])
-    nasa = fetch_nasa(farm["latitude"], farm["longitude"])
+    data = load_inputs(farm)
+    weather, soil, nasa = data["weather"], data["soil"], data["nasa"]
 
-    data_sources = ["Open-Meteo"]
+    data_sources = [weather["source"]]
     if soil:
         data_sources.append("SoilGrids (ISRIC)")
-    if nasa:
+    if nasa and "NASA POWER" not in data_sources:
         data_sources.append("NASA POWER")
 
     return {
