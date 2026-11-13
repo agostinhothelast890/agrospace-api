@@ -4,6 +4,7 @@ from uuid import UUID
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
+from app.nasa import fetch_nasa
 
 from app.analysis import DISCLAIMER, evaluate
 from app.auth import get_current_user
