@@ -48,6 +48,7 @@ def fetch_nasa(latitude: float, longitude: float) -> dict | None:
     temp, rain = valid("T2M"), valid("PRECTOTCORR")
     hum, wet = valid("RH2M"), valid("GWETROOT")
     if not (temp or rain or wet):
+        print(f"NASA POWER returned no valid values: {list(series.keys())}")
         return None
 
     def latest(values: dict[str, float]):
